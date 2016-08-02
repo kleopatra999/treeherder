@@ -16,22 +16,15 @@ class ResultsetLoader:
     """Transform and load a list of Resultsets"""
 
     def process(self, message_body, exchange):
-        logger.info("Begin resultset processing")
         try:
             transformer = self.get_transformer_class(exchange)(message_body)
-
-            # TODO: We have the same url for several repos, like gaia.
-            # So we may want to store the branch to determine which repo
-            # is right.  Or perhaps there's another way.  Check with garndt
-            # when he gets back.
-
-            logger.warn(transformer.repo_url)
-            # todo: can't just use .first() here.  need to get the right one
-            repo = Repository.objects.filter(url=transformer.repo_url,
-                                             active_status="active").first()
+            repo = Repository.objects.get(url=transformer.repo_url,
+                                          branch=transformer.branch,
+                                          active_status="active")
             transformed_data = transformer.transform(repo.name)
 
             with JobsModel(repo.name) as jobs_model:
+                logger.info("Storing resultset for {}".format(transformer.repo_url))
                 jobs_model.store_result_set_data([transformed_data])
 
         except ObjectDoesNotExist:
@@ -41,6 +34,7 @@ class ResultsetLoader:
                 transformer.repo_url))
         except Exception as ex:
             newrelic.agent.record_exception(exc=ex)
+            logger.exception("Error transforming resultset", exc_info=ex)
 
     def get_transformer_class(self, exchange):
         if "github" in exchange:
@@ -63,11 +57,13 @@ class GithubTransformer:
         self.message_body = message_body
         self.repo_url = message_body["details"]["event.head.repo.url"].replace(
                 ".git", "")
+        self.branch = message_body["details"]["event.base.repo.branch"]
 
     def fetch_resultset(self, url, repository, sha=None):
         params = {"sha": sha} if sha else {}
         params.update(self.CREDENTIALS)
 
+        logger.info("Fetching resultset details: {}".format(url))
         try:
             commits = self.get_cleaned_commits(fetch_json(url, params))
             head_commit = commits[0]
