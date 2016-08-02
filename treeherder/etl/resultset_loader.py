@@ -29,7 +29,7 @@ class ResultsetLoader:
 
         except ObjectDoesNotExist:
             newrelic.agent.record_custom_event("skip_unknown_repository",
-                                               message_body["details"])
+                                               transformer.repo_url)
             logger.warn("Skipping unsupported repo: {}".format(
                 transformer.repo_url))
         except Exception as ex:
@@ -210,6 +210,7 @@ class HgPushTransformer:
     def __init__(self, message_body):
         self.message_body = message_body
         self.repo_url = message_body["payload"]["repo_url"]
+        self.branch = None
 
     def transform(self, repository):
         logger.info("transforming for {}".format(repository))
